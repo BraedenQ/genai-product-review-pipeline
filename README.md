@@ -5,11 +5,11 @@ This project showcases a scalable and modern architecture for detecting and filt
 
 ## Agenda
 1. [Launch Confluent Cloud and set up your cluster](#step-1)
-2. [Create topics and get API keys](#step-2)
+2. [Prepare Flink, Kafka topics and API keys](#step-2)
 3. [Set up AWS resources for review data using terraform](#step-3)
 4. [Configure MongoDB Atlas for user data](#step-4)
 5. [Establish a source connector to MongoDB](#step-5)
-6. [Prepare Apache Flink for real-time data stream processing](#step-6)
+6. [Using Flink for real-time data stream processing.](#step-6)
 7. [Clean up and decommission resources post-analysis](#step-7)
 
 ## Prerequisites
@@ -73,16 +73,107 @@ With these prerequisites in place, you'll be ready to explore and run the demo s
 
 8. Click **Launch Cluster.**
 
-## <a name="step-2"></a>**Create topics and get API keys**
-1. Create `amazon-reviews` topic as shown below and click **Create with Defaults**
+## <a name="step-2"></a>**Prepare Flink, Kafka topics and API keys**
+1. Create a Flink workspace by navigating to the cluster view of the environment and selecting the Flink section. Follow the steps as demonstrated below
 <div align="center" padding=25px>
-    <img src="images/create-topic-1.png" width=70% height=50%>
+    <img src="images/flink-create-1.png" width=70% height=50%>
 </div>
 <div align="center" padding=25px>
-    <img src="images/create-topic-2.png" width=70% height=50%>
+    <img src="images/flink-create-2.png" width=70% height=50%>
+</div>
+<div align="center" padding=25px>
+    <img src="images/flink-create-3.png" width=70% height=50%>
 </div>
 
-2. Create Kafka cluster API KEY and store it for later purpose.
+2. You can also access the Flink workspace from the left most pane by clicking `Stream Processing` option.
+3. Execute the following queries in the editor to create the tables.
+
+    > **Note:** Run each query in a new editor window. To create a new editor, click the + button near the left side of the editor.
+    ```SQL
+    CREATE TABLE `amazon-reviews` (
+        user_id STRING,
+        rating STRING,
+        title STRING,
+        text STRING,
+        images ARRAY<STRING>,
+        asin STRING,
+        parent_asin STRING,
+        `timestamp` TIMESTAMP(3),
+        helpful_vote INT,
+        verified_purchase BOOLEAN,
+        WATERMARK  FOR `timestamp` AS `timestamp` - INTERVAL '5' SECOND
+    );
+    ```
+    ```SQL
+    CREATE TABLE filtered_invalid_reviews (
+        user_id STRING,
+        rating STRING,
+        title STRING,
+        text STRING,
+        images ARRAY<STRING>,
+        asin STRING,
+        parent_asin STRING,
+        `timestamp` TIMESTAMP(3),
+        helpful_vote INT,
+        verified_purchase BOOLEAN,
+        window_start TIMESTAMP(3),
+        window_end TIMESTAMP(3),
+        review_count BIGINT,
+        WATERMARK  FOR `timestamp` AS `timestamp` - INTERVAL '5' SECOND
+    );
+    ```
+    ```SQL
+    CREATE TABLE filtered_valid_reviews (
+        user_id STRING,
+        rating STRING,
+        title STRING,
+        text STRING,
+        images ARRAY<STRING>,
+        asin STRING,
+        parent_asin STRING,
+        `timestamp` TIMESTAMP(3),
+        helpful_vote INT,
+        verified_purchase BOOLEAN,
+        window_start TIMESTAMP(3),
+        window_end TIMESTAMP(3),
+        review_count BIGINT,
+        WATERMARK  FOR `timestamp` AS `timestamp` - INTERVAL '5' SECOND
+    );
+    ```
+
+    ```SQL
+    CREATE TABLE valid_reviews_with_user_info (
+        user_id STRING,
+        rating STRING,
+        title STRING,
+        text STRING,
+        images ARRAY<STRING>,
+        asin STRING,
+        parent_asin STRING,
+        `timestamp` TIMESTAMP(3),
+        helpful_vote INT,
+        verified_purchase BOOLEAN,
+        window_start TIMESTAMP(3),
+        window_end TIMESTAMP(3),
+        review_count BIGINT,
+        address STRING,
+        city STRING,
+        country STRING,
+        email STRING,
+        first_name STRING,
+        gender STRING,
+        last_name STRING,
+        payment_method STRING,
+        phone_number STRING,
+        state STRING,
+        zip_code STRING,
+        WATERMARK  FOR `timestamp` AS `timestamp` - INTERVAL '5' SECOND
+    );
+    ```
+
+4. Check the Topics section of your cluster to see the topics created. These topics are generated based on the table names specified in the queries above.
+
+5. Create Kafka cluster API KEY and store it for later purpose.
 <div align="center" padding=25px>
     <img src="images/kafka-api-key-1.png" width=70% height=50%>
 </div>
@@ -90,7 +181,7 @@ With these prerequisites in place, you'll be ready to explore and run the demo s
     <img src="images/kafka-api-key-2.png" width=70% height=50%>
 </div>
 
-3. Create a Schema Registry API key by navigating to the right pane in the cluster's view of the environment. Save the Schema Registry URL and generate the API key by clicking the "Add Key" button. Save the endpoint and credentials for the next step
+6. Create a Schema Registry API key by navigating to the right pane in the cluster's view of the environment. Save the Schema Registry URL and generate the API key by clicking the "Add Key" button. Save the endpoint and credentials for the next step
 <div align="center" padding=25px>
     <img src="images/schema-registry-cred-1.png" width=70% height=50%>
 </div>
@@ -98,40 +189,40 @@ With these prerequisites in place, you'll be ready to explore and run the demo s
     <img src="images/schema-registry-cred-2.png" width=70% height=50%>
 </div>
 
-4. Get the bootstrap endpoint from the Cluster Settings and save it for the next step.
+7. Get the bootstrap endpoint from the Cluster Settings and save it for the next step.
 <div align="center" padding=25px>
     <img src="images/observe-bootstrap-endpoint.png" width=70% height=50%>
 </div>
 
 ## <a name="step-3"></a>**Set up AWS resources for review data using terraform**
 1. This demo uses Terraform  to spin up AWS resources that are needed.
-    - Update the `main.tf` file to adjust the resource names if necessary. Ensure you use the same region as selected during the Confluent Cloud cluster creation step.
-2. Update the `client.properties` file located in the `scripts/lambda-valid-reviews` and `scripts/lambda-review-bombing folders` by replacing the placeholders with the values collected from previous steps.
-3. Navigate to the `scripts/lambda-valid-reviews` and `scripts/lambda-review-bombing` folders, then execute the commands `zip -r lambda_valid_reviews.zip .` and `zip -r lambda_review_bombing.zip .`. Verify that the resulting zip files are located at `/scripts/lambda-valid-reviews/lambda_valid_reviews.zip` and `/scripts/lambda-review-bombing/lambda_review_bombing.zip`.
-4. Initialize Terraform.
+    - Update the `variables.auto.tfvars` file with the proper values generated during the Confluent Cloud setup phase. Ensure you use the same region as selected during the Confluent Cloud cluster creation step.
+1. Initialize Terraform.
     ```
     terraform init
     ```
 
-5. Preview the actions Terraform would take to modify your infrastructure or Check if there are any errors in the code.
+1. Preview the actions Terraform would take to modify your infrastructure or Check if there are any errors in the code.
     ```
     terraform plan
     ```
 
-6. Apply the plan to create the infrastructure.
+1. Apply the plan to create the infrastructure.
 
     ```
     terraform apply 
     ```
-7. Verify the resources created by terraform in AWS.
-8. Execute the `upload-datasets-to-s3.py` script located in the `scripts` folder using the following command:
+1. Verify the resources created by terraform in AWS.
+1. Execute the `upload-datasets-to-s3.py` script located in the `scripts` folder using the following command:
     ```
     python3 upload-datasets-to-s3.py
     ```
-9. Check the datasets uploaded to S3 by the script.
+    Be sure the bucket name is updated in this python script.
+9. [Optional] Check the datasets uploaded to S3 by the script.
 10. Open the AWS Step Functions that were created and start the execution:
     - The Step Function `confluent-mongo-aws-state-function-1` will trigger the valid reviews Lambda function, running every 5 seconds to generate valid reviews.
     - The Step Function `confluent-mongo-aws-state-function-2` will trigger the review bombing Lambda function, running every 3 minutes to generate 1,000 fake reviews.
+    - The Step Function `confluent-mongo-aws-state-function-3` will trigger the static review bombing Lambda function, running every 25 seconds to generate static fake reviews.
 <div align="center" padding=25px>
     <img src="images/state-function-run-1.png" width=70% height=50%>
 </div>
@@ -181,89 +272,9 @@ With these prerequisites in place, you'll be ready to explore and run the demo s
 
 7. Review and launch the connector. Once it is successfully running, you will see a new topic created in the Topics section and user account data populated within the topic.
 
-## <a name="step-6"></a>**Prepare Apache Flink for real-time data stream processing.**
-1. Create a Flink workspace by navigating to the cluster view of the environment and selecting the Flink section. Follow the steps as demonstrated below
-<div align="center" padding=25px>
-    <img src="images/flink-create-1.png" width=70% height=50%>
-</div>
-<div align="center" padding=25px>
-    <img src="images/flink-create-2.png" width=70% height=50%>
-</div>
-<div align="center" padding=25px>
-    <img src="images/flink-create-3.png" width=70% height=50%>
-</div>
+## <a name="step-6"></a>**Using Flink for real-time data stream processing.**
 
-2. You can also access the Flink workspace from the left most pane by clicking `Stream Processing` option.
-3. Execute the following queries in the editor to create the tables.
-
-    > **Note:** Run each query in a new editor window. To create a new editor, click the + button near the left side of the editor.
-    ```SQL
-    CREATE TABLE filtered_invalid_reviews (
-        user_id STRING,
-        rating STRING,
-        title STRING,
-        text STRING,
-        images ARRAY<STRING>,
-        asin STRING,
-        parent_asin STRING,
-        `timestamp` TIMESTAMP(3),
-        helpful_vote INT,
-        verified_purchase BOOLEAN,
-        window_start TIMESTAMP(3),
-        window_end TIMESTAMP(3),
-        review_count BIGINT
-    );
-    ```
-    ```SQL
-    CREATE TABLE filtered_valid_reviews (
-        user_id STRING,
-        rating STRING,
-        title STRING,
-        text STRING,
-        images ARRAY<STRING>,
-        asin STRING,
-        parent_asin STRING,
-        `timestamp` TIMESTAMP(3),
-        helpful_vote INT,
-        verified_purchase BOOLEAN,
-        window_start TIMESTAMP(3),
-        window_end TIMESTAMP(3),
-        review_count BIGINT
-    );
-    ```
-
-    ```SQL
-    CREATE TABLE valid_reviews_with_user_info (
-        user_id STRING,
-        rating STRING,
-        title STRING,
-        text STRING,
-        images ARRAY<STRING>,
-        asin STRING,
-        parent_asin STRING,
-        `timestamp` TIMESTAMP(3),
-        helpful_vote INT,
-        verified_purchase BOOLEAN,
-        window_start TIMESTAMP(3),
-        window_end TIMESTAMP(3),
-        review_count BIGINT,
-        address STRING,
-        city STRING,
-        country STRING,
-        email STRING,
-        first_name STRING,
-        gender STRING,
-        last_name STRING,
-        payment_method STRING,
-        phone_number STRING,
-        state STRING,
-        zip_code STRING
-    );
-    ```
-
-4. Check the Topics section of your cluster to see the topics created. These topics are generated based on the table names specified in the queries above.
-
-5. Execute the following queries to perform a review filter operation, separating reviews into valid and invalid categories. The filtering is based on a hopping window action, where any sudden spike of negative reviews from a single user ID within a short time frame will be classified as an invalid review.
+1. Execute the following queries to perform a review filter operation, separating reviews into valid and invalid categories. The filtering is based on a hopping window action, where any sudden spike of negative reviews from a single user ID within a short time frame will be classified as an invalid review.
     > **Note:** Run each query in a new editor window. To create a new editor, click the + button near the left side of the editor.
     ```SQL
     INSERT INTO filtered_invalid_reviews (
@@ -357,10 +368,10 @@ With these prerequisites in place, you'll be ready to explore and run the demo s
         ON ar.user_id = rc.user_id
         AND ar.`timestamp` >= rc.window_start
         AND ar.`timestamp` < rc.window_end
-    WHERE rc.review_count < 5
+    WHERE rc.review_count < 10
     ```
-6. After the window analysis is complete, the data will be distributed into the respective topics. Verify the data within these topics, all data produced by the review bombing Lambda function will be categorized as invalid reviews.
-7. Now, let's join the valid reviews with the account information.
+2. After the window analysis is complete, the data will be distributed into the respective topics. Verify the data within these topics, all data produced by the review bombing Lambda function will be categorized as invalid reviews.
+3. Now, let's join the valid reviews with the account information.
     ```SQL
     INSERT INTO valid_reviews_with_user_info
     SELECT
@@ -392,7 +403,7 @@ With these prerequisites in place, you'll be ready to explore and run the demo s
     JOIN `mongodb.confluent-aws-mongo-demo-db.amazon-userids` au
     ON fvr.user_id = au.user_id;
     ```
-8. Now, you will see the valid review data with the account information in the `valid_reviews_with_user_info` topic.
+4. Now, you will see the valid review data with the account information in the `valid_reviews_with_user_info` topic.
 
 ## <a name="step-7"></a>**Clean up and decommission resources post-analysis.**
 1. If you wish to remove all resources created during the demo to avoid additional charges, run the following command to execute a cleanup:
