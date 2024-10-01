@@ -1,17 +1,19 @@
 import json
 import random
 import boto3
-import time
+from datetime import datetime
 from confluent_kafka import Producer
 from confluent_kafka.serialization import SerializationContext, MessageField
 from confluent_kafka.schema_registry import SchemaRegistryClient, Schema
 from confluent_kafka.schema_registry.avro import AvroSerializer
+import os
 
 # AWS S3 client
 s3 = boto3.client('s3')
 
 # Define S3 bucket and key details
-bucket_name = 'confluent-mongo-aws-demo'
+bucket_name = os.getenv('BUCKET_NAME')
+#bucket_name = 'confluent-mongo-aws-genai'
 
 # Define Avro schemas for key and value
 key_schema_str = """
@@ -27,20 +29,100 @@ key_schema_str = """
 
 value_schema_str = """
 {
-  "type": "record",
-  "name": "Review",
   "fields": [
-    {"name": "user_id", "type": "string"},
-    {"name": "asin", "type": "string"},
-    {"name": "rating", "type": "string"},
-    {"name": "title", "type": "string"},
-    {"name": "text", "type": "string"},
-    {"name": "timestamp", "type": { "logicalType": "timestamp-millis", "type": "long"}},
-    {"name": "parent_asin", "type": "string"},
-    {"name": "timestamp", "type": "long"},
-    {"name": "helpful_vote", "type": "int"},
-    {"name": "verified_purchase", "type": "boolean"}
-  ]
+    {
+      "default": null,
+      "name": "user_id",
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    {
+      "default": null,
+      "name": "rating",
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    {
+      "default": null,
+      "name": "title",
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    {
+      "default": null,
+      "name": "text",
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    {
+      "default": null,
+      "name": "images",
+      "type": [
+        "null",
+        {
+          "items": [
+            "null",
+            "string"
+          ],
+          "type": "array"
+        }
+      ]
+    },
+    {
+      "default": null,
+      "name": "asin",
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    {
+      "default": null,
+      "name": "parent_asin",
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    {
+      "default": null,
+      "name": "timestamp",
+      "type": [
+        "null",
+        {
+          "logicalType": "local-timestamp-millis",
+          "type": "long"
+        }
+      ]
+    },
+    {
+      "default": null,
+      "name": "helpful_vote",
+      "type": [
+        "null",
+        "int"
+      ]
+    },
+    {
+      "default": null,
+      "name": "verified_purchase",
+      "type": [
+        "null",
+        "boolean"
+      ]
+    }
+  ],
+  "name": "record",
+  "namespace": "org.apache.flink.avro.generated",
+  "type": "record"
 }
 """
 
@@ -125,8 +207,10 @@ def lambda_handler(event, context):
 
     # Create Schema Registry client
     schema_registry_client = SchemaRegistryClient({
-        'url': kafka_config['schema.registry.url'],
-        'basic.auth.user.info': kafka_config['schema.registry.basic.auth.user.info']
+        #'url': kafka_config['schema.registry.url'],
+        #'basic.auth.user.info': kafka_config['schema.registry.basic.auth.user.info']
+        'url': os.getenv('SR_URL'),
+        'basic.auth.user.info': os.getenv('SR_CRED')
     })
 
     # Define schemas
@@ -149,11 +233,11 @@ def lambda_handler(event, context):
 
     # Create Kafka producer
     producer = Producer({
-        'bootstrap.servers': kafka_config['bootstrap.servers'],
-        'security.protocol': kafka_config['security.protocol'],
-        'sasl.mechanisms': kafka_config['sasl.mechanisms'],
-        'sasl.username': kafka_config['sasl.username'],
-        'sasl.password': kafka_config['sasl.password']
+        'bootstrap.servers': os.getenv('BOOTSTRAP_SERVER'),
+        'security.protocol': 'SASL_SSL',
+        'sasl.mechanisms': 'PLAIN',
+        'sasl.username': os.getenv('KAFKA_API_KEY'),
+        'sasl.password': os.getenv('KAFKA_API_SECRET')
     })
 
     reviews = []
@@ -164,11 +248,11 @@ def lambda_handler(event, context):
                 review['user_id'] = user_id
                 review['asin'] = asin
                 review['parent_asin'] = asin
-                review['timestamp'] = int(time.time() * 1000)  # Current timestamp in milliseconds
+                review['timestamp'] = int(datetime.now().timestamp() * 1000)  # Current timestamp in milliseconds
                 reviews.append(Review(review))  # Store Review objects
 
     # Produce reviews to Kafka topic
-    for index, review in enumerate(reviews):
+    for review in reviews:
         try:
             key = {
                 "user_id": review.user_id,
