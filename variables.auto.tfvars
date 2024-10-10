@@ -6,3 +6,5 @@ bootstrap_server=<REPLACE_VALUE_HERE>
 region="us-east-2"
 aws_profile=<REPLACE_VALUE_HERE>
 bucket_name = <REPLACE_VALUE_HERE>
+mongo_uri=<REPLACE_VALUE_HERE>
+secret_name = "genai_demo_secret_2"<YOU_CAN_EDIT_THIS_IF_YOU_WANT>
