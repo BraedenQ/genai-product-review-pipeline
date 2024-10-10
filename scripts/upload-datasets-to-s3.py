@@ -32,7 +32,7 @@ def upload_folder_to_s3(local_folder, bucket_name, s3_folder=None):
 
 # Example usage
 local_folder = '../confluent-mongo-aws-power-of-3/data/'  # Replace with your local folder path
-bucket_name = 'confluent-mongo-aws-genai-demo'  # Replace with your S3 bucket name
+bucket_name = 'confluent-mongo-aws-genai'  # Replace with your S3 bucket name
 s3_folder = ''  # Replace with your S3 folder (optional), or set to None to upload to the root
 
 upload_folder_to_s3(local_folder, bucket_name, s3_folder)
