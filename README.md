@@ -404,8 +404,60 @@ With these prerequisites in place, you'll be ready to explore and run the demo s
     ON fvr.user_id = au.user_id;
     ```
 4. Now, you will see the valid review data with the account information in the `valid_reviews_with_user_info` topic.
+## <a name="step-7"></a>**Making calls to Amazon Bedrock models.**
+### **Set up topics**
 
-## <a name="step-7"></a>**Clean up and decommission resources post-analysis.**
+1. Navigate to Confluent Cloud and create the following new topics: 
+    ```
+    valid_reviews_with_user_info_json
+    enriched_review
+    enriched_product
+    ```
+### **Deserialize AVRO message into JSON**
+Normally you would do the deserialization and then the calls out to Bedrock in a single AWS Lambda function, however for this demo we broke it up into two AWS Lambdas for readability. After messages are deserialized, they are sent back to Confluent Cloud as plain JSON which can be used by the next Lambda function in making a call out to Amazon Bedrock.
+
+1. Navigate to the [avro_deserializer](https://us-east-1.console.aws.amazon.com/lambda/home?region=us-east-1#/functions/avro_deserializer?tab=code) Lambda function.
+1. Click `Add Trigger`. 
+1. Search for `Confluent` and select the `Apache Kafka` option. What we are doing is creating a native integration between Confluent and AWS Lambda wherein AWS Lambda will spin up a consumer group and listen in on a topic we specify. 
+1. Use the following configurations:
+    ```
+    Bootstrap Servers: 
+    Starting position: Trim Horizon
+    Topic Name: valid_reviews_with_user_info
+    Authentication: BASIC_AUTH
+    Secrets Manager Key: genai_demo_secret
+    ```
+1. Confirm data is following by looking at the `valid_reviews_with_user_info` topic. If you see messages coming in, the AWS Lambda trigger is working and the AWS Lambda is consuming and publishing data to Confluent Cloud. 
+### **Summarize the Review**
+This lambda function summarizes the review after consuming off the `valid_reviews_with_user_info_json` topic. The newly generated review and associated details are then publish to the `enriched_product` topic.
+1. Navigate to the [review_summarizer](https://us-east-1.console.aws.amazon.com/lambda/home?region=us-east-1#/functions/review_summarizer?tab=code) Lambda function.
+1. Click `Add Trigger`. 
+1. Search for `Confluent` and select the `Apache Kafka` option. What we are doing is creating a native integration between Confluent and AWS Lambda wherein AWS Lambda will spin up a consumer group and listen in on a topic we specify. 
+1. Use the following configurations:
+    ```
+    Bootstrap Servers: 
+    Starting position: Trim Horizon
+    Topic Name: valid_reviews_with_user_info_json
+    Authentication: BASIC_AUTH
+    Secrets Manager Key: genai_demo_secret
+    ```
+1. Confirm data is following by looking at the `enriched_product` topic. If you see messages coming in, the AWS Lambda trigger is working and the AWS Lambda is consuming and publishing data to Confluent Cloud. 
+
+### **Filter down to unique reviews**
+This lambda function finds reviews that are unique. This could come in the form of length/comprehensiveness, a varied perspective, etc. This is done by finding reviews that have the least amount of matches after consuming off the `valid_reviews_with_user_info_json` topic. The newly generated review and associated details are then publish to the `enriched_review` topic.
+1. Navigate to the [review_summarizer](https://us-east-1.console.aws.amazon.com/lambda/home?region=us-east-1#/functions/review_summarizer?tab=code) Lambda function.
+1. Click `Add Trigger`. 
+1. Search for `Confluent` and select the `Apache Kafka` option. What we are doing is creating a native integration between Confluent and AWS Lambda wherein AWS Lambda will spin up a consumer group and listen in on a topic we specify. 
+1. Use the following configurations:
+    ```
+    Bootstrap Servers: 
+    Starting position: Trim Horizon
+    Topic Name: valid_reviews_with_user_info_json
+    Authentication: BASIC_AUTH
+    Secrets Manager Key: genai_demo_secret
+    ```
+1. Confirm data is following by looking at the `enriched_review` topic. If you see messages coming in, the AWS Lambda trigger is working and the AWS Lambda is consuming and publishing data to Confluent Cloud. 
+## <a name="step-8"></a>**Clean up and decommission resources post-analysis.**
 1. If you wish to remove all resources created during the demo to avoid additional charges, run the following command to execute a cleanup:
    ```bash
    terraform destroy
