@@ -10,7 +10,8 @@ This project showcases a scalable and modern architecture for detecting and filt
 4. [Configure MongoDB Atlas for user data](#step-4)
 5. [Establish a source connector to MongoDB](#step-5)
 6. [Using Flink for real-time data stream processing.](#step-6)
-7. [Clean up and decommission resources post-analysis](#step-7)
+7. [Trigger downstream GenAI applications](#step-7)
+8. [Clean up and decommission resources post-analysis](#step-8)
 
 ## Prerequisites
 
@@ -28,13 +29,13 @@ To ensure a smooth and successful experience with this demo, please make sure yo
 
 - **MongoDB Atlas Account**: Create a MongoDB Atlas account and set up a free cluster. You can follow the Atlas UI instructions given below
 
-    - [Create Atlas account](https://www.mongodb.com/docs/atlas/tutorial/create-atlas-account/).
+    - [Create Atlas account](https://www.mongodb.com/docs/atlas/tutorial/create-atlas-account/)
     - [Create a cluster](https://www.mongodb.com/docs/atlas/tutorial/deploy-free-tier-cluster/)
+    - [Create Database User/Password](https://www.mongodb.com/docs/atlas/security-add-mongodb-users/)
+    - [Configure MongoDB Atlas Network Access](https://www.mongodb.com/docs/atlas/security/ip-access-list/). For demo purposes, you can allow from anywhere. Otherwise, you can find a list of Confluent Cloud IP addresses by following this [documentation](https://docs.confluent.io/cloud/current/networking/static-egress-ip-addresses.html)
 
-- **Clone the repository**
-    ```
-    git clone https://github.com/sharang-ramana/confluent-mongo-aws-power-of-3.git
-    ```
+
+- **Clone this repo repository**
 
 With these prerequisites in place, you'll be ready to explore and run the demo seamlessly.
 
@@ -173,7 +174,7 @@ With these prerequisites in place, you'll be ready to explore and run the demo s
 
 4. Check the Topics section of your cluster to see the topics created. These topics are generated based on the table names specified in the queries above.
 
-5. Create Kafka cluster API KEY and store it for later purpose.
+5. Create Kafka cluster API KEY aand save these values for later.
 <div align="center" padding=25px>
     <img src="images/kafka-api-key-1.png" width=70% height=50%>
 </div>
@@ -181,7 +182,7 @@ With these prerequisites in place, you'll be ready to explore and run the demo s
     <img src="images/kafka-api-key-2.png" width=70% height=50%>
 </div>
 
-6. Create a Schema Registry API key by navigating to the right pane in the cluster's view of the environment. Save the Schema Registry URL and generate the API key by clicking the "Add Key" button. Save the endpoint and credentials for the next step
+6. Create a Schema Registry API key by navigating to the right pane in the cluster's view of the environment. Save the Schema Registry URL and generate the API key by clicking the "Add Key" button. Save the endpoint and credentials for the next step. 
 <div align="center" padding=25px>
     <img src="images/schema-registry-cred-1.png" width=70% height=50%>
 </div>
@@ -195,8 +196,20 @@ With these prerequisites in place, you'll be ready to explore and run the demo s
 </div>
 
 ## <a name="step-3"></a>**Set up AWS resources for review data using terraform**
-1. This demo uses Terraform  to spin up AWS resources that are needed.
-    - Update the `variables.auto.tfvars` file with the proper values generated during the Confluent Cloud setup phase. Ensure you use the same region as selected during the Confluent Cloud cluster creation step.
+1. This demo uses Terraform  to spin up AWS resources that are needed. Update the `variables.auto.tfvars` file with the values you've created/gathered.
+        
+    - **sr_url**: this is your Stream Governance API Endpoint
+    - **sr_cred**: this is your Schema Registry Key and Secret concatenated in the following pattern: `<your_schema_registry_key>:<your_schema_registry_secret>`. 
+    - **kafka_api_key**: value created during step 5
+    - **kafka_api_secret**: value created during step 5
+    - **bootstrap_server**: value found in step 7
+    - **aws_profile**: this is the AWS profile name that you use for AWS CLI. You may leave as `default` or change to a specifed name
+    - **bucket_name**: create globally unique name
+    - **mongo_uri**: You will need 3 things from MongoDB to create this. Your MongoDB Atlas endpoint, your database username, and your database password. The connection string/value will have the following format: `mongodb+srv://<database_user>:<database_password>@<your_cluster_endpoint>`
+    Here is an example uri/connection string:
+    `mongodb+srv://<db_username>:<db_password>@cluster0.nza3jt8.mongodb.net` 
+    - **secret_name**: you may leave as `genai_demo_secret` or change
+        
 1. Initialize Terraform.
     ```
     terraform init
@@ -212,13 +225,12 @@ With these prerequisites in place, you'll be ready to explore and run the demo s
     ```
     terraform apply 
     ```
-1. Verify the resources created by terraform in AWS.
-1. Execute the `upload-datasets-to-s3.py` script located in the `scripts` folder using the following command:
+7. Verify the resources created by terraform in AWS.
+8. Execute the `upload-datasets-to-s3.py` script located in the `scripts` folder using the following command:
     ```
     python3 upload-datasets-to-s3.py
     ```
-    Be sure the bucket name is updated in this python script.
-9. [Optional] Check the datasets uploaded to S3 by the script.
+9. Check the datasets uploaded to S3 by the script.
 10. Open the AWS Step Functions that were created and start the execution:
     - The Step Function `confluent-mongo-aws-state-function-1` will trigger the valid reviews Lambda function, running every 5 seconds to generate valid reviews.
     - The Step Function `confluent-mongo-aws-state-function-2` will trigger the review bombing Lambda function, running every 3 minutes to generate 1,000 fake reviews.
@@ -404,59 +416,40 @@ With these prerequisites in place, you'll be ready to explore and run the demo s
     ON fvr.user_id = au.user_id;
     ```
 4. Now, you will see the valid review data with the account information in the `valid_reviews_with_user_info` topic.
-## <a name="step-7"></a>**Making calls to Amazon Bedrock models.**
-### **Set up topics**
 
-1. Navigate to Confluent Cloud and create the following new topics: 
-    ```
-    valid_reviews_with_user_info_json
-    enriched_review
-    enriched_product
-    ```
-### **Deserialize AVRO message into JSON**
-Normally you would do the deserialization and then the calls out to Bedrock in a single AWS Lambda function, however for this demo we broke it up into two AWS Lambdas for readability. After messages are deserialized, they are sent back to Confluent Cloud as plain JSON which can be used by the next Lambda function in making a call out to Amazon Bedrock.
 
-1. Navigate to the [avro_deserializer](https://us-east-1.console.aws.amazon.com/lambda/home?region=us-east-1#/functions/avro_deserializer?tab=code) Lambda function.
-1. Click `Add Trigger`. 
-1. Search for `Confluent` and select the `Apache Kafka` option. What we are doing is creating a native integration between Confluent and AWS Lambda wherein AWS Lambda will spin up a consumer group and listen in on a topic we specify. 
-1. Use the following configurations:
-    ```
-    Bootstrap Servers: 
-    Starting position: Trim Horizon
-    Topic Name: valid_reviews_with_user_info
-    Authentication: BASIC_AUTH
-    Secrets Manager Key: genai_demo_secret
-    ```
-1. Confirm data is following by looking at the `valid_reviews_with_user_info` topic. If you see messages coming in, the AWS Lambda trigger is working and the AWS Lambda is consuming and publishing data to Confluent Cloud. 
-### **Summarize the Review**
-This lambda function summarizes the review after consuming off the `valid_reviews_with_user_info_json` topic. The newly generated review and associated details are then publish to the `enriched_product` topic.
-1. Navigate to the [review_summarizer](https://us-east-1.console.aws.amazon.com/lambda/home?region=us-east-1#/functions/review_summarizer?tab=code) Lambda function.
-1. Click `Add Trigger`. 
-1. Search for `Confluent` and select the `Apache Kafka` option. What we are doing is creating a native integration between Confluent and AWS Lambda wherein AWS Lambda will spin up a consumer group and listen in on a topic we specify. 
-1. Use the following configurations:
-    ```
-    Bootstrap Servers: 
-    Starting position: Trim Horizon
-    Topic Name: valid_reviews_with_user_info_json
-    Authentication: BASIC_AUTH
-    Secrets Manager Key: genai_demo_secret
-    ```
-1. Confirm data is following by looking at the `enriched_product` topic. If you see messages coming in, the AWS Lambda trigger is working and the AWS Lambda is consuming and publishing data to Confluent Cloud. 
+## <a name="step-7"></a>**Set up AWS Lambda Triggers**
+AWS Lambda Triggers allows for events (such has a new Kafka record landing in a topic) to invoke AWS Lambda. Click [here](https://docs.aws.amazon.com/lambda/latest/dg/lambda-services.html) learn more about AWS Lambda Triggers.
 
-### **Filter down to unique reviews**
-This lambda function finds reviews that are unique. This could come in the form of length/comprehensiveness, a varied perspective, etc. This is done by finding reviews that have the least amount of matches after consuming off the `valid_reviews_with_user_info_json` topic. The newly generated review and associated details are then publish to the `enriched_review` topic.
-1. Navigate to the [review_summarizer](https://us-east-1.console.aws.amazon.com/lambda/home?region=us-east-1#/functions/review_summarizer?tab=code) Lambda function.
-1. Click `Add Trigger`. 
-1. Search for `Confluent` and select the `Apache Kafka` option. What we are doing is creating a native integration between Confluent and AWS Lambda wherein AWS Lambda will spin up a consumer group and listen in on a topic we specify. 
-1. Use the following configurations:
-    ```
-    Bootstrap Servers: 
-    Starting position: Trim Horizon
-    Topic Name: valid_reviews_with_user_info_json
-    Authentication: BASIC_AUTH
-    Secrets Manager Key: genai_demo_secret
-    ```
-1. Confirm data is following by looking at the `enriched_review` topic. If you see messages coming in, the AWS Lambda trigger is working and the AWS Lambda is consuming and publishing data to Confluent Cloud. 
+### Set up the Avro Deserializer Lambda Trigger
+This AWS Lambda will deserialize the Kafka records from Avro into Plaintext JSON. This kind of parsing can normally be done within each downstream AWS Lambda function, but for the purposes of this workshop, we will do it once in this function and publish the resulting JSON to a new topic called `valid_reviews_with_user_info_json`. The other downstream AWS Lambda functions will consume off of this topic.
+1. Navigate to [avro_deserializer Lambda function](https://us-east-1.console.aws.amazon.com/lambda/home?region=us-east-1#/functions/avro_deserializer?tab=code).
+1. Click `Add Trigger`
+1. Search `Confluent` in the search box and select the `Apache Kafka` trigger.
+1. Add your bootstrap server 
+1. Set Starting Position to `Trim horizon`
+1. Set the topic name to `valid_reviews_with_user_info`
+1. Set Authentication to `BASIC_AIUTH`
+1. Set Secrets Manager Key to the Secret deployed by Terraform (default name was `genai_demo_secret`)
+1. Click save. 
+1. After the Trigger is done deploying and is enabled, you can verify the trigger is working by navigating to the `valid_reviews_with_user_info_json` topic and viewing incoming messages. If you do not see messages, visit the CloudWatch logs of the [avro_deserializer Lambda function](https://us-east-1.console.aws.amazon.com/lambda/home?region=us-east-1#/functions/avro_deserializer?tab=monitoring) and look for any errors.
+
+
+### Set up the Semantic Filter Lambda Trigger
+This AWS Lambda function will find unique reviews leveraging MongoDB's [Semantic Search capability ](https://www.mongodb.com/resources/basics/semantic-search). The idea here is that reviews with fewer matches means the is unique in a variety of ways: review length, word choice, etc. These types of reviews may be prioritized to provide potential customers the most well-round information.
+
+1. Navigate to [semantic_filter Lambda function](https://us-east-1.console.aws.amazon.com/lambda/home?region=us-east-1#/functions/semantic_filter?tab=code).
+1. Set up the Kafka Trigger using the same process and settings mentioned above **_except for the topic name_**. The topic name should be `valid_reviews_with_user_info_json`
+1. After the Trigger is done deploying and is enabled, you can verify the trigger is working by navigating to the `enriched_product` topic and viewing incoming messages. If you do not see messages, visit the CloudWatch logs of the [semantic_filter Lambda function](https://us-east-1.console.aws.amazon.com/lambda/home?region=us-east-1#/functions/semantic_filter?tab=monitoring) and look for any errors.
+
+### Set up the Review Summarize Lambda Trigger
+This AWS Lambda is more self-explanatory in that it summarizes the review. This summarization can be used to provide a numerical representation where one wasn't provided.
+
+1. Navigate to [review_summarizer Lambda function](https://us-east-1.console.aws.amazon.com/lambda/home?region=us-east-1#/functions/review_summarizer?tab=code).
+1. Set up the Kafka Trigger using the same settings mentinoed above **_except for the topic name_**. The topic name should be `valid_reviews_with_user_info_json` (the same topic as the `semantic_filter` AWS Lambda function)
+1. After the Trigger is done deploying and is enabled, you can verify the trigger is working by navigating to the `enriched_review` topic and viewing incoming messages. If you do not see messages, visit the CloudWatch logs of the [review_summarizer Lambda function](https://us-east-1.console.aws.amazon.com/lambda/home?region=us-east-1#/functions/review_summarizer?tab=monitoring) and look for any errors.
+
+
 ## <a name="step-8"></a>**Clean up and decommission resources post-analysis.**
 1. If you wish to remove all resources created during the demo to avoid additional charges, run the following command to execute a cleanup:
    ```bash
